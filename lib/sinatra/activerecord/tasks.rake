@@ -2,7 +2,7 @@ require "active_support/core_ext/string/strip"
 require "pathname"
 require "fileutils"
 
-namespace :db do
+db_namespace = namespace :db do
   desc "Create a migration (parameters: NAME, VERSION)"
   task :create_migration do
     unless ENV["NAME"]
@@ -39,6 +39,29 @@ namespace :db do
     MIGRATION
 
     puts path
+  end
+
+  desc "Rolls the schema back to the previous version (specify steps w/ STEP=n)."
+  task rollback: :load_config do
+    ActiveRecord::Base.configurations.configs_for(env_name: SERVER_ENV).each do |db_config|
+      step = ENV["STEP"] ? ENV["STEP"].to_i : 1
+      ActiveRecord::Base.establish_connection(db_config.config)
+      ActiveRecord::Base.connection.migration_context.rollback(step)
+    end
+    db_namespace["_dump"].invoke
+  end
+
+  namespace :rollback do
+    ActiveRecord::Base.configurations.configs_for(env_name: SERVER_ENV).each do |spec|
+      spec_name = spec.spec_name
+      desc "Rolls the schema of #{spec_name} database back to the previous version (specify steps w/ STEP=n)."
+      task spec_name => :load_config do
+        db_config = ActiveRecord::Base.configurations.configs_for(env_name: SERVER_ENV, spec_name: spec_name)
+        step = ENV["STEP"] ? ENV["STEP"].to_i : 1
+        ActiveRecord::Base.establish_connection(db_config.config)
+        ActiveRecord::Base.connection.migration_context.rollback(step)
+      end
+    end
   end
 end
 
