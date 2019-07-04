@@ -60,6 +60,7 @@ db_namespace = namespace :db do
         step = ENV["STEP"] ? ENV["STEP"].to_i : 1
         ActiveRecord::Base.establish_connection(db_config.config)
         ActiveRecord::Base.connection.migration_context.rollback(step)
+        db_namespace["_dump"].invoke
       end
     end
   end
