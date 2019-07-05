@@ -41,19 +41,43 @@ db_namespace = namespace :db do
     puts path
   end
 
-  desc "Rolls the schema back to the previous version (specify steps w/ STEP=n)."
-  task rollback: :load_config do
-    ActiveRecord::Base.configurations.configs_for(env_name: SERVER_ENV).each do |db_config|
-      step = ENV["STEP"] ? ENV["STEP"].to_i : 1
+  if ActiveRecord::Base.configurations.configs_for(env_name: SERVER_ENV).count > 1
+    Rake::Task["db:migrate"].clear
+    desc "Migrate primary database for current environment."
+    task :migrate do
+      db_config = ActiveRecord::Base.configurations.configs_for(env_name: SERVER_ENV, spec_name: "primary")
       ActiveRecord::Base.establish_connection(db_config.config)
-      ActiveRecord::Base.connection.migration_context.rollback(step)
+      ActiveRecord::Tasks::DatabaseTasks.migrate
+      db_namespace["_dump"].invoke
     end
-    db_namespace["_dump"].invoke
+  end
+
+  namespace :migrate do
+    ActiveRecord::Base.configurations.configs_for(env_name: SERVER_ENV).each do |spec|
+      spec_name = spec.spec_name
+      next if spec_name == "primary"
+      desc "Migrate #{spec_name} database for current environment"
+      task spec_name => :load_config do
+        db_config = ActiveRecord::Base.configurations.configs_for(env_name: SERVER_ENV, spec_name: spec_name)
+        ActiveRecord::Base.establish_connection(db_config.config)
+        ActiveRecord::Tasks::DatabaseTasks.migrate
+        db_namespace["_dump"].invoke
+      end
+    end
+
+    desc "Migrate all databases for current environment"
+    task :all do
+      ActiveRecord::Base.configurations.configs_for(env_name: SERVER_ENV).each do |spec|
+        task = spec.spec_name == "primary" ? "migrate" : "migrate:#{spec.spec_name}"
+        db_namespace[task].invoke
+      end
+    end
   end
 
   namespace :rollback do
     ActiveRecord::Base.configurations.configs_for(env_name: SERVER_ENV).each do |spec|
       spec_name = spec.spec_name
+      next if spec_name == "primary"
       desc "Rolls the schema of #{spec_name} database back to the previous version (specify steps w/ STEP=n)."
       task spec_name => :load_config do
         db_config = ActiveRecord::Base.configurations.configs_for(env_name: SERVER_ENV, spec_name: spec_name)
@@ -65,6 +89,7 @@ db_namespace = namespace :db do
     end
   end
 end
+
 
 # The `db:create` and `db:drop` command won't work with a DATABASE_URL because
 # the `db:load_config` command tries to connect to the DATABASE_URL, which either
